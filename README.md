@@ -1,10 +1,12 @@
-# Forword
+# Foreword
 
-This is a practice project for me to understand the Grafana (LGTM) observability stack
+This is a practice project to understand the Grafana (LGTM) observability stack.
 
 # 3-Service Observability Lab
 
 A complete observability demonstration using the LGTM stack (Loki, Grafana, Tempo, Mimir/Prometheus) with 3 microservices, showcasing correlated metrics, logs, traces, and SLO-driven alerting.
+
+![LGTM OSS](img/lgtm_dashboards.png)
 
 ## Challenges This Demo Solves
 
@@ -78,22 +80,61 @@ docker compose ps
 
 ### 2. Access Services
 
-- **Grafana**: http://localhost:3000 (admin/admin)
+- **Grafana**: http://localhost:3000 
+  - Username: `admin`
+  - Password: `admin`
+  - (On first login, you'll be prompted to change the password - you can skip this for local development)
 - **Prometheus**: http://localhost:9090
 - **Alertmanager**: http://localhost:9093
 - **Gateway API**: http://localhost:8000
 - **Catalog API**: http://localhost:8001
 - **Checkout API**: http://localhost:8002
 
+#### Connecting to Grafana
+
+1. **Start the services** (if not already running):
+   ```bash
+   docker compose up -d
+   ```
+
+2. **Wait for Grafana to be ready** (about 10-30 seconds):
+   ```bash
+   docker compose ps grafana
+   # Should show "Up" status
+   ```
+
+3. **Open your browser** and navigate to:
+   ```
+   http://localhost:3000
+   ```
+
+4. **Login with default credentials**:
+   - Username: `admin`
+   - Password: `admin`
+
+5. **Optional**: Change password (you can click "Skip" for local development)
+
+Once logged in, you'll see:
+- **Dashboards** automatically loaded: "Golden Signals Overview" and "SLO & Error Budget"
+- **Data sources** already configured: Prometheus, Loki, and Tempo
+- **Explore** section to query metrics, logs, and traces
+
+**Note**: Datasources are configured with basic settings. Advanced correlation features (exemplars, derived fields) can be added through the Grafana UI if needed.
+
 ### 3. Generate Traffic
 
-Use the provided Makefile commands or curl directly:
+**Important**: You need to generate traffic for data to appear in Grafana!
 
 ```bash
-# Generate normal traffic
-make load
+# Option 1: Quick load (generates 300 requests then stops)
+make load-quick
+# Wait 30 seconds, then refresh Grafana dashboards
 
-# Or manually:
+# Option 2: Continuous load (runs forever - press Ctrl+C to stop)
+make load
+# Keep this running in a terminal while viewing Grafana
+
+# Option 3: Manual requests
 curl http://localhost:8000/
 curl http://localhost:8000/browse
 curl -X POST http://localhost:8000/purchase \
@@ -101,21 +142,29 @@ curl -X POST http://localhost:8000/purchase \
   -d '{"items": [{"id": "1", "price": 19.99, "quantity": 1}]}'
 ```
 
+**Note**: `make load` runs continuously (this is normal!). It's designed to keep generating traffic. Press `Ctrl+C` to stop it. Use `make load-quick` for a one-time load generation.
+
 ## Usage
 
 ### Generate Load
 
-The Makefile includes a load generator:
+The Makefile includes load generators:
 
 ```bash
+# Quick load (generates 300 requests, then stops)
+make load-quick
+
+# Continuous load (runs forever, press Ctrl+C to stop)
 make load
 ```
 
-This runs a simple loop making requests to all endpoints.
+**Note**: `make load` runs continuously - this is intentional! It keeps generating traffic. Press `Ctrl+C` to stop it. For a one-time load, use `make load-quick`.
 
 ### Chaos Engineering
 
-Inject latency and errors into services:
+Inject latency and errors into services to test your observability setup:
+
+#### Basic Chaos Commands
 
 ```bash
 # Add 500ms latency to catalog
@@ -127,6 +176,28 @@ make chaos-errors SERVICE=checkout RATE=0.1
 # Reset chaos (set to 0)
 make chaos-reset SERVICE=catalog
 ```
+
+#### High Error Rate Examples
+
+**Trigger 50% error rate:**
+```bash
+make chaos-errors SERVICE=gateway RATE=0.5
+```
+
+**Trigger 100% error rate (complete failure):**
+```bash
+make chaos-errors SERVICE=gateway RATE=1.0
+```
+
+**Trigger multiple services:**
+```bash
+# Inject errors on all services
+make chaos-errors SERVICE=gateway RATE=0.3
+make chaos-errors SERVICE=catalog RATE=0.3
+make chaos-errors SERVICE=checkout RATE=0.3
+```
+
+**See "Triggering Alerts and High Error Rates" section below for more detailed examples.**
 
 **Manual Method:** Edit `docker-compose.yml` to change `CHAOS_LATENCY_MS` or `CHAOS_ERROR_RATE` for the service, then restart:
 
@@ -170,12 +241,17 @@ All services expose Prometheus metrics at `/metrics`:
 - `http_requests_total` - Request counter with labels: `service`, `route`, `method`, `status`
 - `http_request_duration_seconds` - Request latency histogram
 
+![Prometheus Alert Dashboard](img/prometheus_alert_dashboard.png)
+![Prometheus SLO pending](img/prometheus_gateway_slo_pending.png)
+![Prometheus Latency Firing](img/prometheus_latencyslo_firing.png)
+
 **Key Metrics:**
 - Request rate per service/route
 - Error rate per service/route
 - p50, p95, p99 latency per service/route
 
 ### Logs (Loki)
+![Logs](img/logs.gif)
 
 All services emit structured JSON logs to stdout with:
 - `timestamp`, `level`, `service`, `route`, `method`, `status`
@@ -183,6 +259,7 @@ All services emit structured JSON logs to stdout with:
 
 Promtail collects logs from Docker containers and ships to Loki with labels:
 - `job=services`, `service`, `env=local`
+
 
 ### Traces (Tempo)
 
@@ -221,7 +298,10 @@ Displays:
 - Top routes by latency
 - Top routes by error rate
 
+![Golden Signals Overview](img/grafana-golden-dashboard.png)
+
 ### 2. SLO & Error Budget
+![SLO & Error Budget Dashboard](img/grafana-budget-dashboard.png)
 
 Displays:
 - **Availability SLI**: 99.9% successful requests (non-5xx) for gateway
@@ -238,6 +318,7 @@ Displays:
 - Latency alert: p95 > 300ms → Ticket alert
 
 ## Alerting
+![Alert Manager](img/alertmanager_alerts.png)
 
 Alerts are configured in `prometheus/alerts.yml` and evaluated by Prometheus. Alertmanager routes them based on severity:
 
@@ -248,19 +329,150 @@ View active alerts:
 - Prometheus: http://localhost:9090/alerts
 - Alertmanager: http://localhost:9093
 
-### Triggering Alerts
+### Triggering Alerts and High Error Rates
 
-To trigger an alert:
+#### Quick Commands to Trigger High Error Rates
 
+**Trigger 50% error rate (will quickly consume error budget):**
 ```bash
-# Inject high error rate
-make chaos-errors SERVICE=gateway RATE=0.15
+# On gateway (affects SLO directly)
+make chaos-errors SERVICE=gateway RATE=0.5
 
-# Or high latency
-make chaos-latency SERVICE=gateway LATENCY=1000
+# On catalog (affects gateway when browsing)
+make chaos-errors SERVICE=catalog RATE=0.5
+
+# On checkout (affects gateway when purchasing)
+make chaos-errors SERVICE=checkout RATE=0.5
 ```
 
-Wait 5-10 minutes for the alert to fire (depending on evaluation interval).
+**Trigger 100% error rate (complete service failure):**
+```bash
+make chaos-errors SERVICE=gateway RATE=1.0
+```
+
+**Trigger moderate error rate (10-20% - slow burn):**
+```bash
+# 10% error rate
+make chaos-errors SERVICE=gateway RATE=0.1
+
+# 20% error rate
+make chaos-errors SERVICE=gateway RATE=0.2
+```
+
+**Trigger high latency (affects latency SLO):**
+```bash
+# 1 second latency
+make chaos-latency SERVICE=gateway LATENCY=1000
+
+# 2 seconds latency
+make chaos-latency SERVICE=gateway LATENCY=2000
+```
+
+**Combine errors and latency:**
+```bash
+# First inject errors
+make chaos-errors SERVICE=gateway RATE=0.3
+
+# Then inject latency (in separate terminal or after)
+make chaos-latency SERVICE=gateway LATENCY=500
+```
+
+#### Testing SLO Violations
+
+**To trigger Fast-Burn Alert (Page - 14.4x error rate):**
+```bash
+# This will consume 30-day error budget in ~5 hours
+# Need error rate that makes availability < 98.6%
+make chaos-errors SERVICE=gateway RATE=0.15
+
+# Generate traffic to see the effect
+make load
+```
+
+**To trigger Slow-Burn Alert (Ticket - 6x error rate):**
+```bash
+# This will consume 30-day error budget in ~6 hours
+# Need error rate that makes availability < 99.3%
+make chaos-errors SERVICE=gateway RATE=0.08
+
+# Generate traffic
+make load
+```
+
+**To trigger Latency Alert:**
+```bash
+# p95 > 300ms threshold
+make chaos-latency SERVICE=gateway LATENCY=500
+
+# Generate traffic
+make load
+```
+
+#### Complete Test Scenario
+
+Here's a complete workflow to test error handling:
+
+```bash
+# 1. Start with clean state
+make chaos-reset SERVICE=gateway
+make chaos-reset SERVICE=catalog
+make chaos-reset SERVICE=checkout
+
+# 2. Generate baseline traffic
+make load
+# Let it run for 1-2 minutes, then stop (Ctrl+C)
+
+# 3. Inject high error rate on gateway
+make chaos-errors SERVICE=gateway RATE=0.5
+
+# 4. Generate traffic to see errors
+make load
+# Watch Grafana dashboards - you should see:
+# - Error rate spike in "Golden Signals Overview"
+# - Error budget depleting in "SLO & Error Budget"
+# - Alerts firing in Prometheus (http://localhost:9090/alerts)
+
+# 5. Check alerts
+# Visit: http://localhost:9090/alerts
+# Visit: http://localhost:9093
+
+# 6. Reset to normal
+make chaos-reset SERVICE=gateway
+```
+
+#### Monitoring Error Rates
+
+While error rates are active, monitor them:
+
+**In Grafana:**
+1. Open "Golden Signals Overview" dashboard
+2. Watch the "Error Rate by Service" panel
+3. Check "SLO & Error Budget" dashboard for error budget consumption
+
+**In Prometheus:**
+```bash
+# Query error rate
+# Visit: http://localhost:9090
+# Query: rate(http_requests_total{service="gateway",status=~"5.."}[5m]) / rate(http_requests_total{service="gateway"}[5m])
+```
+
+**In Loki (logs):**
+```bash
+# Query error logs
+# In Grafana Explore → Loki
+# Query: {service="gateway"} |= "ERROR"
+```
+
+#### Reset After Testing
+
+```bash
+# Reset all services
+make chaos-reset SERVICE=gateway
+make chaos-reset SERVICE=catalog
+make chaos-reset SERVICE=checkout
+```
+
+**Note:** Wait 5-10 minutes after injecting errors for alerts to fire (depending on evaluation interval). Alerts are evaluated every 30 seconds as configured in `prometheus/alerts.yml`.
 
 ## Service APIs
 
@@ -323,6 +535,71 @@ Wait 5-10 minutes for the alert to fire (depending on evaluation interval).
 
 ## Troubleshooting
 
+### No Data in Grafana Dashboards
+
+If you don't see any data in Grafana, follow these steps:
+
+1. **Verify services are running:**
+   ```bash
+   docker compose ps
+   # All services should show "Up" status
+   ```
+
+2. **Generate traffic to your services:**
+   ```bash
+   # Option 1: Use the load generator (recommended)
+   make load
+   
+   # Option 2: Generate some test requests manually
+   curl http://localhost:8000/
+   curl http://localhost:8000/browse
+   curl -X POST http://localhost:8000/purchase \
+     -H "Content-Type: application/json" \
+     -d '{"items": [{"id": "1", "price": 19.99, "quantity": 1}]}'
+   ```
+   **Important**: You need to generate traffic before data will appear! The dashboards show metrics from actual requests.
+
+3. **Check if metrics are being collected:**
+   ```bash
+   # Check Prometheus targets (all should be "UP")
+   # Visit: http://localhost:9090/targets
+   
+   # Or via command line:
+   curl -s http://localhost:9090/api/v1/targets | python3 -m json.tool | grep -A 2 "health"
+   ```
+
+4. **Verify metrics are exposed:**
+   ```bash
+   # Check gateway metrics
+   curl http://localhost:8000/metrics | grep http_requests_total
+   
+   # Check catalog metrics
+   curl http://localhost:8001/metrics | grep http_requests_total
+   
+   # Check checkout metrics
+   curl http://localhost:8002/metrics | grep http_requests_total
+   ```
+
+5. **Check Prometheus is scraping:**
+   - Visit http://localhost:9090
+   - Go to Status → Targets
+   - All three services (gateway, catalog, checkout) should show as "UP"
+
+6. **Verify Grafana datasources:**
+   - In Grafana, go to Configuration → Data Sources
+   - You should see Prometheus, Loki, and Tempo
+   - Click on each and click "Save & Test" - all should show "Data source is working"
+
+7. **Check dashboard time range:**
+   - In Grafana dashboards, check the time picker (top right)
+   - Set it to "Last 15 minutes" or "Last 1 hour"
+   - Click "Apply"
+
+8. **Wait for data collection:**
+   - After generating traffic, wait 15-30 seconds
+   - Prometheus scrapes every 15 seconds (configured in prometheus.yml)
+   - Refresh the dashboard
+
 ### Services not starting
 
 ```bash
@@ -367,6 +644,29 @@ docker compose restart gateway
 
 3. Check Tempo config: `tempo/tempo-config.yml`
 
+### Grafana Not Starting
+
+If Grafana fails to start or shows "Datasource provisioning error":
+
+1. **Clear Grafana data volume** (this resets Grafana to a clean state):
+   ```bash
+   docker compose down grafana
+   docker volume rm grafana_stack_demo_grafana_data
+   docker compose up -d grafana
+   ```
+
+2. **Wait 30-40 seconds** for Grafana to fully start
+
+3. **Verify Grafana is running**:
+   ```bash
+   curl http://localhost:3000/api/health
+   # Should return: {"database":"ok","version":"..."}
+   ```
+
+4. **Access Grafana**: http://localhost:3000 (admin/admin)
+
+**Note**: The datasource configuration has been simplified to avoid provisioning errors. Cross-datasource correlation features (like exemplars linking to Tempo) can be configured manually through the Grafana UI if needed.
+
 ### Dashboards not loading
 
 1. Check Grafana provisioning logs:
@@ -378,18 +678,73 @@ docker compose restart gateway
 
 3. Manually import dashboards if needed (they should auto-load)
 
+### No Data in Grafana Dashboards (but data exists in Prometheus)
+
+**This is the most common issue!** Follow these steps:
+
+1. **Check Dashboard Time Range:**
+   - In Grafana, look at the time picker (top-right corner)
+   - Click it and select **"Last 15 minutes"** or **"Last 1 hour"**
+   - Click **Apply**
+   - **This is usually the problem!** Dashboards default to "Last 6 hours" but you need recent data.
+
+2. **Verify Data in Grafana Explore First:**
+   - Go to **Explore** (compass icon in left sidebar)
+   - Select **Prometheus** datasource
+   - Run query: `sum(rate(http_requests_total[5m]))`
+   - Set time range to "Last 15 minutes"
+   - If you see data here, datasource is working!
+
+3. **Test Dashboard Queries:**
+   - Open a dashboard panel
+   - Click panel title → **Edit**
+   - Click **Run query** button
+   - Check if data appears in preview
+
+4. **Verify Data Source Connection:**
+   - Go to **Configuration** → **Data Sources**
+   - Click **Prometheus**
+   - Click **Save & Test**
+   - Should see: "Data source is working"
+
+5. **Check Prometheus Has Data:**
+   ```bash
+   # Visit: http://localhost:9090
+   # Run query: rate(http_requests_total[5m])
+   # Should show data if services are receiving traffic
+   ```
+
+6. **Generate Fresh Traffic:**
+   ```bash
+   # Generate traffic
+   make load-quick
+   # Or keep make load running continuously
+   # Wait 30 seconds (Prometheus scrapes every 15s)
+   # Then refresh Grafana dashboard
+   ```
+
+**Important**: If you've restarted services and still see no data, make sure:
+1. You've generated traffic (run `make load-quick` or `make load`)
+2. Wait 30-60 seconds after generating traffic (Prometheus scrapes every 15s)
+3. In Grafana, set time range to "Last 15 minutes" or "Last 1 hour"
+4. Click the refresh button on the dashboard
+
 ## Makefile Commands
 
 ```bash
 make up          # Start all services
 make down        # Stop all services
 make logs        # View logs from all services
-make load        # Generate load to services
+make load        # Generate load continuously (runs forever, press Ctrl+C to stop)
+make load-quick  # Generate quick load (100 requests, then stops)
 make chaos-latency SERVICE=<name> LATENCY=<ms>  # Inject latency
-make chaos-errors SERVICE=<name> RATE=<0.0-1.0> # Inject errors
+make chaos-errors SERVICE=<name> RATE=<0.0-1.0> # Inject errors (0.0-1.0, e.g., 0.5 = 50%)
 make chaos-reset SERVICE=<name>                 # Reset chaos (set to 0)
 make restart     # Restart all services
 make clean       # Stop and remove volumes (clean slate)
+
+# Example: Trigger 50% error rate on gateway
+make chaos-errors SERVICE=gateway RATE=0.5
 ```
 
 ## Architecture Notes

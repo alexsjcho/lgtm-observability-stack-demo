@@ -5,26 +5,15 @@ datasources:
     type: prometheus
     access: proxy
     url: http://prometheus:9090
+    uid: prometheus
     isDefault: true
     editable: true
-    jsonData:
-      exemplarTraceIdDestinations:
-        - name: trace_id
-          datasourceUid: tempo
-        - name: TraceID
-          datasourceUid: tempo
 
   - name: Loki
     type: loki
     access: proxy
     url: http://loki:3100
     editable: true
-    jsonData:
-      derivedFields:
-        - datasourceUid: tempo
-          matcherRegex: "\"trace_id\":\"([^\"]+)\""
-          name: TraceID
-          url: '$${__value.raw}'
 
   - name: Tempo
     type: tempo
@@ -32,15 +21,3 @@ datasources:
     url: http://tempo:3200
     uid: tempo
     editable: true
-    jsonData:
-      httpMethod: GET
-      tracesToLogs:
-        datasourceUid: loki
-        tags: ['job', 'instance', 'pod', 'namespace']
-        mappedTags: [{ key: 'service.name', value: 'service' }]
-        mapTagNamesEnabled: false
-        spanStartTimeShift: '1h'
-        spanEndTimeShift: '1h'
-        filterByTraceID: false
-        filterBySpanID: false
-

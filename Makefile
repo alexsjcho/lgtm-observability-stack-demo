@@ -27,6 +27,8 @@ logs:
 
 load:
 	@echo "Generating load to services..."
+	@echo "Press Ctrl+C to stop"
+	@echo ""
 	@while true; do \
 		curl -s http://localhost:8000/ > /dev/null; \
 		curl -s http://localhost:8000/browse > /dev/null; \
@@ -35,6 +37,18 @@ load:
 			-d '{"items": [{"id": "1", "price": 19.99, "quantity": 1}]}' > /dev/null; \
 		sleep 1; \
 	done
+
+load-quick:
+	@echo "Generating quick load (100 requests, then stopping)..."
+	@for i in $$(seq 1 100); do \
+		curl -s http://localhost:8000/ > /dev/null; \
+		curl -s http://localhost:8000/browse > /dev/null; \
+		curl -s -X POST http://localhost:8000/purchase \
+			-H "Content-Type: application/json" \
+			-d '{"items": [{"id": "1", "price": 19.99, "quantity": 1}]}' > /dev/null; \
+		sleep 0.2; \
+	done
+	@echo "Done! Generated 300 requests. Wait 30 seconds, then check Grafana."
 
 chaos-latency:
 	@if [ -z "$(SERVICE)" ] || [ -z "$(LATENCY)" ]; then \
