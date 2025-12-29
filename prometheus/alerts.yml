@@ -1,0 +1,69 @@
+groups:
+  - name: slo_alerts
+    interval: 30s
+    rules:
+      # Availability SLO: 99.9% success rate (non-5xx)
+      # Fast burn: 14.4x error rate (burn through 30-day budget in 5 hours)
+      - alert: GatewayAvailabilitySLOFastBurn
+        expr: |
+          (
+            sum(rate(http_requests_total{service="gateway",status!~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{service="gateway"}[5m]))
+          ) < 0.986
+        for: 5m
+        labels:
+          severity: page
+          slo: availability
+          service: gateway
+        annotations:
+          summary: "Gateway availability SLO fast burn - 30-day budget consumed in 5h"
+          description: "Gateway availability is {{ $value | humanizePercentage }} (target: 99.9%). Error rate is consuming budget 14.4x faster than allowed."
+
+      # Slow burn: 6x error rate (burn through 30-day budget in 6 hours)
+      - alert: GatewayAvailabilitySLOSlowBurn
+        expr: |
+          (
+            sum(rate(http_requests_total{service="gateway",status!~"5.."}[30m]))
+            /
+            sum(rate(http_requests_total{service="gateway"}[30m]))
+          ) < 0.993
+        for: 30m
+        labels:
+          severity: ticket
+          slo: availability
+          service: gateway
+        annotations:
+          summary: "Gateway availability SLO slow burn - 30-day budget consumed in 6h"
+          description: "Gateway availability is {{ $value | humanizePercentage }} (target: 99.9%). Error rate is consuming budget 6x faster than allowed."
+
+      # Latency SLO: 95% requests under 300ms (p95 < 300ms)
+      - alert: GatewayLatencySLO
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket{service="gateway"}[5m])) by (le)
+          ) > 0.3
+        for: 5m
+        labels:
+          severity: ticket
+          slo: latency
+          service: gateway
+        annotations:
+          summary: "Gateway latency SLO violation - p95 > 300ms"
+          description: "Gateway p95 latency is {{ $value | humanizeDuration }} (target: < 300ms)"
+
+      # Error rate alerts (catch-all)
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{service=~"gateway|catalog|checkout",status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{service=~"gateway|catalog|checkout"}[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} across services"
+
